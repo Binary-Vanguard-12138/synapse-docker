@@ -1,6 +1,9 @@
 # Local environment — contains secrets, never commit
 .env
 
+# Claude Code local settings
+.claude/
+
 # Let's Encrypt certificates (stored in Docker volumes, not the repo)
 data/
 

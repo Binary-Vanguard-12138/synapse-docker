@@ -78,8 +78,11 @@ services:
       KC_PROXY: edge
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_METRICS_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_RELATIVE_PATH: "/"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     command: start
     depends_on:
       postgres:
@@ -98,14 +101,14 @@ services:
     image: nginx:alpine
     restart: unless-stopped
     env_file: .env
-    # Only substitute our custom vars; nginx's own $host etc. are escaped as $$host in the template
-    environment:
-      NGINX_ENVSUBST_FILTER: "SYNAPSE_DOMAIN KEYCLOAK_DOMAIN MATRIX_DOMAIN TURN_DOMAIN"
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/entrypoint.sh:/entrypoint.sh:ro
+      # mounted as .template so nginx's own template processing never touches it
+      - ./nginx/default.conf.template:/etc/nginx/conf.d/default.conf.template:ro
       - certbot-certs:/etc/letsencrypt:ro
       - certbot-webroot:/var/www/certbot:ro
     depends_on:

@@ -15,10 +15,66 @@ All domain names are configured in a single `.env` file and never hardcoded else
 
 ## Prerequisites
 
-- A Linux server with a **public IP address**
-- **Docker** and **Docker Compose v2** installed
+- A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04
+- **Docker** and **Docker Compose v2** installed (see below)
 - **DNS A records** pointing all four domains to your server's IP before running `init-certs.sh`
 - Ports **80**, **443**, **3478**, **5349**, and **49152–49200/UDP** open in your firewall
+
+---
+
+## Installing Docker and Docker Compose on Ubuntu
+
+> Skip this section if Docker is already installed. Run `docker compose version` to check.
+
+### 1. Remove old versions (if any)
+
+```bash
+sudo apt remove -y docker docker-engine docker.io containerd runc
+```
+
+### 2. Add Docker's official apt repository
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+```
+
+### 3. Install Docker Engine and the Compose plugin
+
+```bash
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io \
+                    docker-buildx-plugin docker-compose-plugin
+```
+
+### 4. Allow your user to run Docker without sudo
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker          # apply the group change in the current shell
+```
+
+### 5. Verify the installation
+
+```bash
+docker version
+docker compose version
+```
+
+Both commands should print version information without errors. Docker Compose v2 is
+included as a plugin (`docker compose`) — note there is no hyphen, unlike the older
+standalone `docker-compose` v1.
 
 ---
 

@@ -1,4 +1,5 @@
 server_name: "${MATRIX_DOMAIN}"
+public_baseurl: "https://${SYNAPSE_DOMAIN}/"
 pid_file: /data/homeserver.pid
 
 listeners:
@@ -41,15 +42,19 @@ turn_shared_secret: "${TURN_SECRET}"
 turn_user_lifetime: 86400000
 turn_allow_guests: false
 
-# Uncomment to enable Keycloak SSO login:
-# oidc_providers:
-#   - idp_id: keycloak
-#     idp_name: "Keycloak"
-#     issuer: "https://${KEYCLOAK_DOMAIN}/realms/master"
-#     client_id: "synapse"
-#     client_secret: "REPLACE_WITH_KEYCLOAK_CLIENT_SECRET"
-#     scopes: ["openid", "profile", "email"]
-#     user_mapping_provider:
-#       config:
-#         localpart_template: "{{ user.preferred_username }}"
-#         display_name_template: "{{ user.name }}"
+oidc_providers:
+  - idp_id: keycloak
+    idp_name: "Keycloak"
+    issuer: "https://${KEYCLOAK_DOMAIN}/realms/matrix"
+    client_id: "synapse"
+    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
+    scopes: ["openid", "profile"]
+    user_mapping_provider:
+      config:
+        localpart_template: "{{ user.preferred_username }}"
+        display_name_template: "{{ user.name }}"
+    backchannel_logout_enabled: true
+    allow_existing_users: true
+
+password_config:
+  enabled: false
