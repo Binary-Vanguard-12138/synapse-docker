@@ -1,0 +1,141 @@
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # passed into init-databases.sh
+      SYNAPSE_DB_PASSWORD: ${SYNAPSE_DB_PASSWORD}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Matrix Synapse ────────────────────────────────────────
+  synapse:
+    image: matrixdotorg/synapse:latest
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    volumes:
+      - synapse-data:/data
+      - ./synapse/homeserver.yaml.template:/homeserver.yaml.template:ro
+      - ./synapse/log.config:/data/log.config:ro
+      - ./synapse/entrypoint.sh:/entrypoint.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:8008/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── coturn TURN/STUN server ───────────────────────────────
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    volumes:
+      - ./coturn/turnserver.conf.template:/turnserver.conf.template:ro
+      - ./coturn/entrypoint.sh:/entrypoint.sh:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    networks:
+      - internal
+
+  # ── Keycloak ──────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_DOMAIN}
+      KC_PROXY: edge
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    command: start
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:8080/health/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # ── Nginx reverse proxy ───────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    env_file: .env
+    # Only substitute our custom vars; nginx's own $host etc. are escaped as $$host in the template
+    environment:
+      NGINX_ENVSUBST_FILTER: "SYNAPSE_DOMAIN KEYCLOAK_DOMAIN MATRIX_DOMAIN TURN_DOMAIN"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - certbot-certs:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      - synapse
+      - keycloak
+    networks:
+      - internal
+
+  # ── Certbot (renewal loop) ────────────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - certbot-certs:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    # Renews every 12 h; nginx must be reloaded separately after renewal
+    # (see scripts/reload-nginx.sh or run: docker compose exec nginx nginx -s reload)
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+        while :; do
+          certbot renew --webroot --webroot-path=/var/www/certbot --quiet;
+          sleep 12h & wait $${!};
+        done"
+
+volumes:
+  postgres-data:
+  synapse-data:
+  certbot-certs:
+  certbot-webroot:
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,101 @@
+# ── HTTP: ACME challenge + redirect to HTTPS ─────────────
+server {
+    listen 80;
+    server_name ${SYNAPSE_DOMAIN} ${MATRIX_DOMAIN} ${KEYCLOAK_DOMAIN} ${TURN_DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$$host$$request_uri;
+    }
+}
+
+# ── Synapse + Matrix well-known ───────────────────────────
+server {
+    listen 443 ssl;
+    server_name ${SYNAPSE_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${SYNAPSE_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SYNAPSE_DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    client_max_body_size 50m;
+
+    location /.well-known/matrix/server {
+        return 200 '{"m.server":"${SYNAPSE_DOMAIN}:443"}';
+        add_header Content-Type application/json;
+    }
+
+    location /.well-known/matrix/client {
+        return 200 '{"m.homeserver":{"base_url":"https://${SYNAPSE_DOMAIN}"}}';
+        add_header Content-Type application/json;
+        add_header Access-Control-Allow-Origin *;
+    }
+
+    location / {
+        proxy_pass       http://synapse:8008;
+        proxy_set_header Host              $$host;
+        proxy_set_header X-Real-IP         $$remote_addr;
+        proxy_set_header X-Forwarded-For   $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+        proxy_read_timeout 600s;
+    }
+}
+
+# ── Matrix base domain delegation (if MATRIX_DOMAIN != SYNAPSE_DOMAIN) ──
+# When MATRIX_DOMAIN equals SYNAPSE_DOMAIN nginx uses the block above; this
+# block is only active when they differ and serves only well-known delegation.
+server {
+    listen 443 ssl;
+    server_name ${MATRIX_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${SYNAPSE_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SYNAPSE_DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    location /.well-known/matrix/server {
+        return 200 '{"m.server":"${SYNAPSE_DOMAIN}:443"}';
+        add_header Content-Type application/json;
+    }
+
+    location /.well-known/matrix/client {
+        return 200 '{"m.homeserver":{"base_url":"https://${SYNAPSE_DOMAIN}"}}';
+        add_header Content-Type application/json;
+        add_header Access-Control-Allow-Origin *;
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+# ── Keycloak ──────────────────────────────────────────────
+server {
+    listen 443 ssl;
+    server_name ${KEYCLOAK_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${SYNAPSE_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SYNAPSE_DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+
+    location / {
+        proxy_pass       http://keycloak:8080;
+        proxy_set_header Host              $$host;
+        proxy_set_header X-Real-IP         $$remote_addr;
+        proxy_set_header X-Forwarded-For   $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+        proxy_buffer_size    128k;
+        proxy_buffers        4 256k;
+        proxy_busy_buffers_size 256k;
+    }
+}

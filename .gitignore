@@ -1,0 +1,11 @@
+# Local environment — contains secrets, never commit
+.env
+
+# Let's Encrypt certificates (stored in Docker volumes, not the repo)
+data/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

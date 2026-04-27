@@ -1,0 +1,30 @@
+realm=${TURN_DOMAIN}
+server-name=${TURN_DOMAIN}
+
+listening-port=3478
+tls-listening-port=5349
+
+# TLS certs from the shared multi-SAN Let's Encrypt certificate
+cert=/etc/letsencrypt/live/${SYNAPSE_DOMAIN}/fullchain.pem
+pkey=/etc/letsencrypt/live/${SYNAPSE_DOMAIN}/privkey.pem
+
+# External/public IP for NAT traversal
+external-ip=${SERVER_IP}
+
+# HMAC-SHA1 shared secret auth (matches Synapse turn_shared_secret)
+use-auth-secret
+static-auth-secret=${TURN_SECRET}
+
+# Relay port range (must match the ports mapped in docker-compose.yml)
+min-port=49152
+max-port=49200
+
+# Disable older TLS versions
+no-tlsv1
+no-tlsv1_1
+
+# Security: deny loopback/multicast relay targets
+no-loopback-peers
+no-multicast-peers
+
+log-file=stdout

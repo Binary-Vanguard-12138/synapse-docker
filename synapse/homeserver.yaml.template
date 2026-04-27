@@ -1,0 +1,55 @@
+server_name: "${MATRIX_DOMAIN}"
+pid_file: /data/homeserver.pid
+
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    resources:
+      - names: [client, federation]
+        compress: false
+
+database:
+  name: psycopg2
+  args:
+    user: synapse
+    password: "${SYNAPSE_DB_PASSWORD}"
+    database: synapse
+    host: postgres
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+log_config: "/data/log.config"
+media_store_path: /data/media_store
+signing_key_path: "/data/signing.key"
+
+report_stats: false
+registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
+
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+# TURN server for VoIP / video calls
+turn_uris:
+  - "turns:${TURN_DOMAIN}:5349?transport=udp"
+  - "turns:${TURN_DOMAIN}:5349?transport=tcp"
+  - "turn:${TURN_DOMAIN}:3478?transport=udp"
+  - "turn:${TURN_DOMAIN}:3478?transport=tcp"
+turn_shared_secret: "${TURN_SECRET}"
+turn_user_lifetime: 86400000
+turn_allow_guests: false
+
+# Uncomment to enable Keycloak SSO login:
+# oidc_providers:
+#   - idp_id: keycloak
+#     idp_name: "Keycloak"
+#     issuer: "https://${KEYCLOAK_DOMAIN}/realms/master"
+#     client_id: "synapse"
+#     client_secret: "REPLACE_WITH_KEYCLOAK_CLIENT_SECRET"
+#     scopes: ["openid", "profile", "email"]
+#     user_mapping_provider:
+#       config:
+#         localpart_template: "{{ user.preferred_username }}"
+#         display_name_template: "{{ user.name }}"
