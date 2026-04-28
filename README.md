@@ -85,19 +85,23 @@ standalone `docker-compose` v1.
 ├── .env.example                          # configuration template
 ├── docker-compose.yml
 ├── nginx/
-│   └── templates/
-│       └── default.conf.template         # Nginx config (uses envsubst)
+│   ├── default.conf.template             # Nginx vhost config (uses envsubst)
+│   └── entrypoint.sh                     # substitutes env vars; bootstraps HTTP-only mode if certs are missing
+├── certbot/
+│   └── entrypoint.sh                     # certificate renewal loop (every 12 h)
 ├── synapse/
-│   ├── homeserver.yaml.template          # Synapse config (uses Python substitution)
+│   ├── homeserver.yaml.template          # Synapse config (uses envsubst)
 │   ├── log.config                        # Synapse logging
 │   └── entrypoint.sh
 ├── coturn/
-│   ├── turnserver.conf.template          # coturn config (uses awk substitution)
+│   ├── turnserver.conf.template          # coturn config (uses envsubst)
 │   └── entrypoint.sh
 ├── postgres/
-│   └── init-databases.sh                 # creates synapse + keycloak databases
+│   └── init-databases.sh                 # creates synapse + keycloak databases on first boot
 └── scripts/
-    └── init-certs.sh                     # one-time certificate initialisation
+    ├── init-certs.sh                     # one-time certificate initialisation (run before stack start)
+    ├── backup.sh                         # snapshot databases, volumes, and .env to ./backups/
+    └── uninstall.sh                      # tear down all containers, networks, and volumes
 ```
 
 ---
@@ -147,14 +151,17 @@ federation to `SYNAPSE_DOMAIN`.
 
 ### 2. Point DNS
 
-Create **A records** for every domain in `.env` pointing to `SERVER_IP`:
+Create an **A record** for your main domain and **CNAME records** for the subdomains:
 
 ```
-matrix.example.com  →  <SERVER_IP>
-auth.example.com    →  <SERVER_IP>
-turn.example.com    →  <SERVER_IP>
-example.com         →  <SERVER_IP>   # only if MATRIX_DOMAIN differs from SYNAPSE_DOMAIN
+example.com         A      <SERVER_IP>
+matrix.example.com  CNAME  example.com
+auth.example.com    CNAME  example.com
+turn.example.com    CNAME  example.com
 ```
+
+> If `MATRIX_DOMAIN` and `SYNAPSE_DOMAIN` are the same value, the A record is for
+> that domain and the remaining subdomains point to it via CNAME.
 
 Wait for DNS propagation before continuing.
 
@@ -162,15 +169,19 @@ Wait for DNS propagation before continuing.
 
 ### 3. Obtain TLS certificates (one-time)
 
-This script uses certbot in standalone mode (no Nginx needed yet) to obtain a single
-multi-SAN certificate covering all your domains.
+This script uses certbot in **standalone mode** (no Nginx needed yet) to obtain a single
+multi-SAN certificate covering all your domains. The certificate is stored in the
+`certbot-certs` Docker volume under `live/<MATRIX_DOMAIN>/`.
 
 ```bash
 bash scripts/init-certs.sh
 ```
 
-Port 80 must be free. The certificates are stored in the `certbot-certs` Docker volume
-and are valid for all configured domains.
+Port 80 must be free on the host when this runs.
+
+> **Note:** If you start the stack before running `init-certs.sh`, Nginx will
+> automatically enter an HTTP-only bootstrap mode and print a waiting message in its
+> logs. It will switch to HTTPS as soon as the certificates appear in the volume.
 
 ---
 
@@ -207,14 +218,15 @@ docker compose exec synapse register_new_matrix_user \
 
 ### Certificate renewal
 
-Certbot automatically attempts renewal every 12 hours. After a successful renewal,
-reload Nginx to apply the new certificate:
+Certbot automatically attempts renewal every 12 hours using the **webroot** method
+(Nginx serves the ACME challenge files). After a successful renewal, reload Nginx to
+apply the new certificate:
 
 ```bash
 docker compose exec nginx nginx -s reload
 ```
 
-To automate this, add a cron job on the host:
+To automate the reload, add a cron job on the host:
 
 ```cron
 0 3 * * * docker compose -f /path/to/synapse-docker/docker-compose.yml exec -T nginx nginx -s reload
@@ -232,39 +244,81 @@ docker compose up -d
 ```bash
 docker compose logs -f synapse
 docker compose logs -f keycloak
-docker compose logs -f coturn
+docker compose logs -f nginx
+docker compose logs -f certbot
 ```
 
 ### Backup
 
-Back up the Docker volumes that hold persistent state:
-
-| Volume | Contents |
-|---|---|
-| `synapse-docker_postgres-data` | All databases (Synapse + Keycloak) |
-| `synapse-docker_synapse-data` | Signing key, media store |
-| `synapse-docker_certbot-certs` | TLS certificates |
-
-Example — dump the databases:
+Run the backup script to snapshot all persistent state into a timestamped directory
+under `./backups/`:
 
 ```bash
-docker compose exec postgres pg_dumpall -U postgres > backup_$(date +%F).sql
+bash scripts/backup.sh
 ```
+
+Each backup directory contains:
+
+| File | Contents |
+|---|---|
+| `postgres.sql` | Full logical dump of all databases (Synapse + Keycloak) |
+| `synapse-data.tar.gz` | Synapse signing key and media store |
+| `certbot-certs.tar.gz` | TLS certificates and account keys |
+| `.env` | All secrets and domain configuration |
+
+The stack must be running when the script is executed (it needs the postgres container
+to produce the SQL dump).
+
+### Uninstall
+
+To completely remove the stack including all data:
+
+```bash
+bash scripts/uninstall.sh
+```
+
+This stops all containers and deletes every named volume (databases, media store,
+certificates). The action is irreversible — you will be prompted to confirm.
 
 ---
 
 ## Keycloak SSO integration with Synapse
 
+### 1. Create the Matrix realm
+
 1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
-2. Create a new realm (or use `master`).
-3. Create a client with:
-   - **Client ID:** `synapse`
-   - **Client authentication:** on
-   - **Valid redirect URIs:** `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback`
-4. Copy the **client secret** from the Credentials tab.
-5. Uncomment the `oidc_providers` block in [synapse/homeserver.yaml.template](synapse/homeserver.yaml.template)
-   and fill in the client secret.
-6. Restart Synapse: `docker compose restart synapse`
+2. Click **Create realm** and set the realm name to `matrix`.
+
+### 2. Create the Synapse OIDC client
+
+Inside the `matrix` realm, go to **Clients → Create client** and configure:
+
+| Setting | Value |
+|---|---|
+| Client ID | `synapse` |
+| Client Type | `OpenID Connect` |
+| Client authentication | On |
+| Root URL | `https://<SYNAPSE_DOMAIN>` |
+| Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
+| Front channel logout | Off |
+| Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
+| Backchannel logout session required | On |
+
+After saving, copy the **client secret** from the **Credentials** tab.
+
+### 3. Configure Synapse
+
+Set `KEYCLOAK_CLIENT_SECRET` in your `.env` file to the client secret you copied:
+
+```bash
+KEYCLOAK_CLIENT_SECRET=<paste-secret-here>
+```
+
+Then restart Synapse to apply the change:
+
+```bash
+docker compose restart synapse
+```
 
 ---
 
@@ -291,7 +345,8 @@ Internal network (Docker bridge):
 ```
 
 TLS is terminated at Nginx for web traffic. coturn handles its own TLS directly using
-the shared Let's Encrypt certificate (a multi-SAN cert covering all configured domains).
+the shared Let's Encrypt certificate — a multi-SAN cert covering all configured domains,
+stored under `live/<MATRIX_DOMAIN>/` in the `certbot-certs` volume.
 
 ---
 

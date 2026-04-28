@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-CERT_FILE="/etc/letsencrypt/live/${SYNAPSE_DOMAIN}/fullchain.pem"
+CERT_FILE="/etc/letsencrypt/live/${MATRIX_DOMAIN}/fullchain.pem"
 
 # Bootstrap: certs don't exist yet on first run.
 # Start HTTP-only so certbot can serve the ACME challenge, then reload to HTTPS.
@@ -23,7 +23,7 @@ EOF
 
     nginx
 
-    echo "[nginx] Waiting for ${CERT_FILE} ..."
+    echo "[nginx] Waiting for ${CERT_FILE} ... (run scripts/init-certs.sh if not done yet)"
     while [ ! -f "$CERT_FILE" ]; do
         sleep 5
     done
