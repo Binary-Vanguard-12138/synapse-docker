@@ -137,6 +137,37 @@ Open `.env` and set every value — this is the **only file you need to edit**:
 > **Password rules:** avoid `$`, `'`, `\`, and `&` in passwords — these characters
 > can break shell-based config substitution.
 
+#### Generating strong passwords
+
+Use `pwgen` to generate a secure random password for each secret field:
+
+```bash
+# Install pwgen if not already present
+sudo apt install -y pwgen
+
+# Generate a single 48-character password (no special chars to avoid substitution issues)
+pwgen -s 48 1
+```
+
+Run it once per secret variable and paste each output into `.env`. For example:
+
+```bash
+POSTGRES_PASSWORD=$(pwgen -s 48 1)
+SYNAPSE_DB_PASSWORD=$(pwgen -s 48 1)
+KEYCLOAK_DB_PASSWORD=$(pwgen -s 48 1)
+SYNAPSE_REGISTRATION_SECRET=$(pwgen -s 48 1)
+TURN_SECRET=$(pwgen -s 48 1)
+KEYCLOAK_ADMIN_PASSWORD=$(pwgen -s 48 1)
+
+# Print them all to copy into .env
+echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+echo "SYNAPSE_DB_PASSWORD=$SYNAPSE_DB_PASSWORD"
+echo "KEYCLOAK_DB_PASSWORD=$KEYCLOAK_DB_PASSWORD"
+echo "SYNAPSE_REGISTRATION_SECRET=$SYNAPSE_REGISTRATION_SECRET"
+echo "TURN_SECRET=$TURN_SECRET"
+echo "KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD"
+```
+
 #### MATRIX_DOMAIN vs SYNAPSE_DOMAIN
 
 | Goal | Setting |
