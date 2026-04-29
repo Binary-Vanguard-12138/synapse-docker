@@ -112,9 +112,22 @@ services:
       - ./nginx/default.conf.template:/etc/nginx/conf.d/default.conf.template:ro
       - certbot-certs:/etc/letsencrypt:ro
       - certbot-webroot:/var/www/certbot:ro
+      - synapse-admin-files:/var/www/synapse-admin:ro
     depends_on:
       - synapse
       - keycloak
+    networks:
+      - internal
+
+  # ── Synapse Admin UI (downloads latest release on start) ──
+  synapse-admin:
+    image: alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - synapse-admin-files:/var/www/synapse-admin
+      - ./synapse-admin/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     networks:
       - internal
 
@@ -134,6 +147,7 @@ volumes:
   synapse-data:
   certbot-certs:
   certbot-webroot:
+  synapse-admin-files:
 
 networks:
   internal:
