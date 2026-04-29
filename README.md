@@ -15,7 +15,7 @@ All domain names are configured in a single `.env` file and never hardcoded else
 
 ## Prerequisites
 
-- A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04
+- A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04, with at least **4 GB RAM**
 - **Docker** and **Docker Compose v2** installed (see below)
 - **DNS A records** pointing all four domains to your server's IP before running `init-certs.sh`
 - Ports **80**, **443**, **3478**, **5349**, and **49152–49200/UDP** open in your firewall
@@ -133,6 +133,7 @@ Open `.env` and set every value — this is the **only file you need to edit**:
 | `TURN_SECRET` | Shared secret between Synapse and coturn |
 | `KEYCLOAK_ADMIN` | Keycloak admin console username |
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin console password |
+| `KEYCLOAK_CLIENT_SECRET` | OIDC client secret shared between Synapse and Keycloak (generate upfront; paste into Keycloak later) |
 
 > **Password rules:** avoid `$`, `'`, `\`, and `&` in passwords — these characters
 > can break shell-based config substitution.
@@ -158,6 +159,7 @@ KEYCLOAK_DB_PASSWORD=$(pwgen -s 48 1)
 SYNAPSE_REGISTRATION_SECRET=$(pwgen -s 48 1)
 TURN_SECRET=$(pwgen -s 48 1)
 KEYCLOAK_ADMIN_PASSWORD=$(pwgen -s 48 1)
+KEYCLOAK_CLIENT_SECRET=$(pwgen -s 48 1)
 
 # Print them all to copy into .env
 echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
@@ -166,6 +168,7 @@ echo "KEYCLOAK_DB_PASSWORD=$KEYCLOAK_DB_PASSWORD"
 echo "SYNAPSE_REGISTRATION_SECRET=$SYNAPSE_REGISTRATION_SECRET"
 echo "TURN_SECRET=$TURN_SECRET"
 echo "KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD"
+echo "KEYCLOAK_CLIENT_SECRET=$KEYCLOAK_CLIENT_SECRET"
 ```
 
 #### MATRIX_DOMAIN vs SYNAPSE_DOMAIN
@@ -232,20 +235,96 @@ docker compose ps
 docker compose logs -f   # Ctrl-C to exit
 ```
 
+### 5. Configure Keycloak SSO
+
+See the [Keycloak SSO integration](#keycloak-sso-integration-with-synapse) section below.
+
 ---
 
-### 5. Create the first Matrix user
+## Keycloak SSO integration with Synapse
 
-```bash
-docker compose exec synapse register_new_matrix_user \
-  -c /data/homeserver.yaml \
-  -u <username> -p <password> --admin \
-  http://localhost:8008
-```
+### 1. Create the Matrix realm
+
+1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
+2. Click **Create realm** and set the realm name to `matrix`.
+
+### 2. Create the Synapse OIDC client
+
+Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
+then click **Save**:
+
+| Setting | Value |
+|---|---|
+| Client ID | `synapse` |
+| Client Type | `OpenID Connect` |
+| Client authentication | On |
+| Root URL | `https://<SYNAPSE_DOMAIN>` |
+| Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
+
+After saving, open the client's **Credentials** tab and set the **Client secret** to the
+value of `KEYCLOAK_CLIENT_SECRET` from your `.env` file.
+
+Then open the **Settings** tab, scroll to the **Logout settings** section, and update:
+
+| Setting | Value |
+|---|---|
+| Front channel logout | Off |
+| Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
+| Backchannel logout session required | On |
+
+Save. No Synapse restart is needed — the secret was already baked in at startup.
 
 ---
 
 ## Maintenance
+
+### Create users
+
+Password login is disabled (`password_config: enabled: false`), so all users authenticate
+exclusively through Keycloak. There is no "Register" button on the Keycloak login page —
+accounts must be created by an administrator in the Keycloak admin console.
+
+#### Normal users
+
+1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
+2. Select the **matrix** realm.
+3. Go to **Users → Add user**, fill in the username, and click **Create**.
+4. On the **Details** tab, add **Configure OTP** to **Required user actions** to enforce
+   two-factor authentication on first login.
+5. Open the **Credentials** tab, set a temporary password, and leave **Temporary** on so
+   the user is forced to change it on first login.
+
+That is sufficient — Synapse auto-provisions the Matrix account on first SSO login.
+
+#### Synapse admin (required for the Synapse Admin UI)
+
+The Synapse Admin UI requires a Matrix account with admin privileges.
+
+1. Create the user in Keycloak as described above (e.g. username `admin`).
+2. Before that user logs in, run:
+
+```bash
+docker compose exec synapse register_new_matrix_user \
+  -c /data/homeserver.yaml \
+  -u <username> -p <dummy-password> --admin \
+  http://localhost:8008
+```
+
+The password is never used since authentication goes through Keycloak.
+
+3. The user can now log in to the Synapse Admin UI at
+   `https://<SYNAPSE_DOMAIN>/admin` using their Keycloak credentials.
+
+### Change password
+
+Since authentication goes through Keycloak, passwords are managed there — not in
+Synapse or Element. Users can change their password via the Keycloak account portal:
+
+```
+https://<KEYCLOAK_DOMAIN>/realms/matrix/account/
+```
+
+After logging in, go to **Account Security → Signing in**.
 
 ### Certificate renewal
 
@@ -310,52 +389,6 @@ bash scripts/uninstall.sh
 
 This stops all containers and deletes every named volume (databases, media store,
 certificates). The action is irreversible — you will be prompted to confirm.
-
----
-
-## Keycloak SSO integration with Synapse
-
-### 1. Create the Matrix realm
-
-1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
-2. Click **Create realm** and set the realm name to `matrix`.
-
-### 2. Create the Synapse OIDC client
-
-Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
-then click **Save**:
-
-| Setting | Value |
-|---|---|
-| Client ID | `synapse` |
-| Client Type | `OpenID Connect` |
-| Client authentication | On |
-| Root URL | `https://<SYNAPSE_DOMAIN>` |
-| Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
-
-After saving, open the client's **Settings** tab, scroll to the **Logout settings** section, and update:
-
-| Setting | Value |
-|---|---|
-| Front channel logout | Off |
-| Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
-| Backchannel logout session required | On |
-
-Save again, then copy the **client secret** from the **Credentials** tab.
-
-### 3. Configure Synapse
-
-Set `KEYCLOAK_CLIENT_SECRET` in your `.env` file to the client secret you copied:
-
-```bash
-KEYCLOAK_CLIENT_SECRET=<paste-secret-here>
-```
-
-Then restart Synapse to apply the change:
-
-```bash
-docker compose restart synapse
-```
 
 ---
 

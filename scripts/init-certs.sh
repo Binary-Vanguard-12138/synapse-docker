@@ -41,6 +41,10 @@ docker compose run --rm --entrypoint certbot -p 80:80 certbot \
     --no-eff-email \
     ${DOMAIN_ARGS}
 
+# Make certs readable by non-root services (coturn runs as nobody)
+docker compose run --rm --entrypoint sh certbot \
+    -c 'chmod -R a+rX /etc/letsencrypt/archive /etc/letsencrypt/live'
+
 echo ""
 echo "Done! Start the full stack with:"
 echo "  docker compose up -d"

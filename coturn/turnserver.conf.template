@@ -19,8 +19,7 @@ static-auth-secret=${TURN_SECRET}
 min-port=49152
 max-port=49200
 
-# Security: deny loopback/multicast relay targets
-no-loopback-peers
+# Security: deny multicast relay targets
 no-multicast-peers
 
 syslog
