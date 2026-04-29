@@ -322,7 +322,8 @@ certificates). The action is irreversible — you will be prompted to confirm.
 
 ### 2. Create the Synapse OIDC client
 
-Inside the `matrix` realm, go to **Clients → Create client** and configure:
+Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
+then click **Save**:
 
 | Setting | Value |
 |---|---|
@@ -331,11 +332,16 @@ Inside the `matrix` realm, go to **Clients → Create client** and configure:
 | Client authentication | On |
 | Root URL | `https://<SYNAPSE_DOMAIN>` |
 | Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
+
+After saving, open the client's **Settings** tab, scroll to the **Logout settings** section, and update:
+
+| Setting | Value |
+|---|---|
 | Front channel logout | Off |
 | Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
 | Backchannel logout session required | On |
 
-After saving, copy the **client secret** from the **Credentials** tab.
+Save again, then copy the **client secret** from the **Credentials** tab.
 
 ### 3. Configure Synapse
 
