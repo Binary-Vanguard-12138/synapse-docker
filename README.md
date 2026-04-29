@@ -137,6 +137,37 @@ Open `.env` and set every value — this is the **only file you need to edit**:
 > **Password rules:** avoid `$`, `'`, `\`, and `&` in passwords — these characters
 > can break shell-based config substitution.
 
+#### Generating strong passwords
+
+Use `pwgen` to generate a secure random password for each secret field:
+
+```bash
+# Install pwgen if not already present
+sudo apt install -y pwgen
+
+# Generate a single 48-character password (no special chars to avoid substitution issues)
+pwgen -s 48 1
+```
+
+Run it once per secret variable and paste each output into `.env`. For example:
+
+```bash
+POSTGRES_PASSWORD=$(pwgen -s 48 1)
+SYNAPSE_DB_PASSWORD=$(pwgen -s 48 1)
+KEYCLOAK_DB_PASSWORD=$(pwgen -s 48 1)
+SYNAPSE_REGISTRATION_SECRET=$(pwgen -s 48 1)
+TURN_SECRET=$(pwgen -s 48 1)
+KEYCLOAK_ADMIN_PASSWORD=$(pwgen -s 48 1)
+
+# Print them all to copy into .env
+echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+echo "SYNAPSE_DB_PASSWORD=$SYNAPSE_DB_PASSWORD"
+echo "KEYCLOAK_DB_PASSWORD=$KEYCLOAK_DB_PASSWORD"
+echo "SYNAPSE_REGISTRATION_SECRET=$SYNAPSE_REGISTRATION_SECRET"
+echo "TURN_SECRET=$TURN_SECRET"
+echo "KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD"
+```
+
 #### MATRIX_DOMAIN vs SYNAPSE_DOMAIN
 
 | Goal | Setting |
@@ -291,7 +322,8 @@ certificates). The action is irreversible — you will be prompted to confirm.
 
 ### 2. Create the Synapse OIDC client
 
-Inside the `matrix` realm, go to **Clients → Create client** and configure:
+Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
+then click **Save**:
 
 | Setting | Value |
 |---|---|
@@ -300,11 +332,16 @@ Inside the `matrix` realm, go to **Clients → Create client** and configure:
 | Client authentication | On |
 | Root URL | `https://<SYNAPSE_DOMAIN>` |
 | Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
+
+After saving, open the client's **Settings** tab, scroll to the **Logout settings** section, and update:
+
+| Setting | Value |
+|---|---|
 | Front channel logout | Off |
 | Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
 | Backchannel logout session required | On |
 
-After saving, copy the **client secret** from the **Credentials** tab.
+Save again, then copy the **client secret** from the **Credentials** tab.
 
 ### 3. Configure Synapse
 

@@ -7,6 +7,9 @@
 # Let's Encrypt certificates (stored in Docker volumes, not the repo)
 data/
 
+# Backup archives
+backups/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

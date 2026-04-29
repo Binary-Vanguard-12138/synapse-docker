@@ -16,7 +16,7 @@ echo ""
 
 # 1. PostgreSQL logical dump (restores cleanly across minor version upgrades)
 echo "[1/3] Dumping PostgreSQL databases..."
-if ! docker compose ps postgres | grep -q "running"; then
+if ! docker compose ps postgres | grep -q "Up"; then
     echo "ERROR: postgres container is not running. Start the stack first."
     exit 1
 fi

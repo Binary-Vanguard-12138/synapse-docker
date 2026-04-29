@@ -91,10 +91,10 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsSL http://localhost:8080/health/ready || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/9000 && printf \"GET /health/ready HTTP/1.0\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q UP'"]
       interval: 30s
       timeout: 10s
-      retries: 10
+      retries: 5
       start_period: 90s
 
   # ── Nginx reverse proxy ───────────────────────────────────
@@ -112,9 +112,22 @@ services:
       - ./nginx/default.conf.template:/etc/nginx/conf.d/default.conf.template:ro
       - certbot-certs:/etc/letsencrypt:ro
       - certbot-webroot:/var/www/certbot:ro
+      - synapse-admin-files:/var/www/synapse-admin:ro
     depends_on:
       - synapse
       - keycloak
+    networks:
+      - internal
+
+  # ── Synapse Admin UI (downloads latest release on start) ──
+  synapse-admin:
+    image: alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - synapse-admin-files:/var/www/synapse-admin
+      - ./synapse-admin/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     networks:
       - internal
 
@@ -134,6 +147,7 @@ volumes:
   synapse-data:
   certbot-certs:
   certbot-webroot:
+  synapse-admin-files:
 
 networks:
   internal:

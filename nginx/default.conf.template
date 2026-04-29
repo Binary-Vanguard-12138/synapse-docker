@@ -38,6 +38,12 @@ server {
         add_header Access-Control-Allow-Origin *;
     }
 
+    location /admin {
+        alias /var/www/synapse-admin;
+        index index.html;
+        try_files $uri $uri/ /admin/index.html;
+    }
+
     location / {
         proxy_pass       http://synapse:8008;
         proxy_set_header Host              $host;
