@@ -133,6 +133,7 @@ Open `.env` and set every value — this is the **only file you need to edit**:
 | `TURN_SECRET` | Shared secret between Synapse and coturn |
 | `KEYCLOAK_ADMIN` | Keycloak admin console username |
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin console password |
+| `KEYCLOAK_CLIENT_SECRET` | OIDC client secret shared between Synapse and Keycloak (generate upfront; paste into Keycloak later) |
 
 > **Password rules:** avoid `$`, `'`, `\`, and `&` in passwords — these characters
 > can break shell-based config substitution.
@@ -158,6 +159,7 @@ KEYCLOAK_DB_PASSWORD=$(pwgen -s 48 1)
 SYNAPSE_REGISTRATION_SECRET=$(pwgen -s 48 1)
 TURN_SECRET=$(pwgen -s 48 1)
 KEYCLOAK_ADMIN_PASSWORD=$(pwgen -s 48 1)
+KEYCLOAK_CLIENT_SECRET=$(pwgen -s 48 1)
 
 # Print them all to copy into .env
 echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
@@ -166,6 +168,7 @@ echo "KEYCLOAK_DB_PASSWORD=$KEYCLOAK_DB_PASSWORD"
 echo "SYNAPSE_REGISTRATION_SECRET=$SYNAPSE_REGISTRATION_SECRET"
 echo "TURN_SECRET=$TURN_SECRET"
 echo "KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD"
+echo "KEYCLOAK_CLIENT_SECRET=$KEYCLOAK_CLIENT_SECRET"
 ```
 
 #### MATRIX_DOMAIN vs SYNAPSE_DOMAIN
@@ -333,7 +336,10 @@ then click **Save**:
 | Root URL | `https://<SYNAPSE_DOMAIN>` |
 | Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
 
-After saving, open the client's **Settings** tab, scroll to the **Logout settings** section, and update:
+After saving, open the client's **Credentials** tab and set the **Client secret** to the
+value of `KEYCLOAK_CLIENT_SECRET` from your `.env` file.
+
+Then open the **Settings** tab, scroll to the **Logout settings** section, and update:
 
 | Setting | Value |
 |---|---|
@@ -341,21 +347,7 @@ After saving, open the client's **Settings** tab, scroll to the **Logout setting
 | Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
 | Backchannel logout session required | On |
 
-Save again, then copy the **client secret** from the **Credentials** tab.
-
-### 3. Configure Synapse
-
-Set `KEYCLOAK_CLIENT_SECRET` in your `.env` file to the client secret you copied:
-
-```bash
-KEYCLOAK_CLIENT_SECRET=<paste-secret-here>
-```
-
-Then restart Synapse to apply the change:
-
-```bash
-docker compose restart synapse
-```
+Save.
 
 ---
 
