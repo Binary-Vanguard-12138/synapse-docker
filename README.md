@@ -235,20 +235,85 @@ docker compose ps
 docker compose logs -f   # Ctrl-C to exit
 ```
 
+### 5. Configure Keycloak SSO
+
+See the [Keycloak SSO integration](#keycloak-sso-integration-with-synapse) section below.
+
 ---
 
-### 5. Create the first Matrix user
+## Keycloak SSO integration with Synapse
 
-```bash
-docker compose exec synapse register_new_matrix_user \
-  -c /data/homeserver.yaml \
-  -u <username> -p <password> --admin \
-  http://localhost:8008
-```
+### 1. Create the Matrix realm
+
+1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
+2. Click **Create realm** and set the realm name to `matrix`.
+
+### 2. Create the Synapse OIDC client
+
+Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
+then click **Save**:
+
+| Setting | Value |
+|---|---|
+| Client ID | `synapse` |
+| Client Type | `OpenID Connect` |
+| Client authentication | On |
+| Root URL | `https://<SYNAPSE_DOMAIN>` |
+| Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
+
+After saving, open the client's **Credentials** tab and set the **Client secret** to the
+value of `KEYCLOAK_CLIENT_SECRET` from your `.env` file.
+
+Then open the **Settings** tab, scroll to the **Logout settings** section, and update:
+
+| Setting | Value |
+|---|---|
+| Front channel logout | Off |
+| Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
+| Backchannel logout session required | On |
+
+Save. No Synapse restart is needed — the secret was already baked in at startup.
 
 ---
 
 ## Maintenance
+
+### Create users
+
+Password login is disabled (`password_config: enabled: false`), so all users authenticate
+exclusively through Keycloak. There is no "Register" button on the Keycloak login page —
+accounts must be created by an administrator in the Keycloak admin console.
+
+#### Normal users
+
+1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
+2. Select the **matrix** realm.
+3. Go to **Users → Add user**, fill in the username, and click **Create**.
+4. On the **Details** tab, add **Configure OTP** to **Required user actions** to enforce
+   two-factor authentication on first login.
+5. Open the **Credentials** tab, set a temporary password, and leave **Temporary** on so
+   the user is forced to change it on first login.
+
+That is sufficient — Synapse auto-provisions the Matrix account on first SSO login.
+
+#### Synapse admin (required for the Synapse Admin UI)
+
+The Synapse Admin UI requires a Matrix account with admin privileges.
+
+1. Create the user in Keycloak as described above (e.g. username `admin`).
+2. Before that user logs in, run:
+
+```bash
+docker compose exec synapse register_new_matrix_user \
+  -c /data/homeserver.yaml \
+  -u <username> -p <dummy-password> --admin \
+  http://localhost:8008
+```
+
+The password is never used since authentication goes through Keycloak.
+
+3. The user can now log in to the Synapse Admin UI at
+   `https://<SYNAPSE_DOMAIN>/admin` using their Keycloak credentials.
 
 ### Certificate renewal
 
@@ -313,41 +378,6 @@ bash scripts/uninstall.sh
 
 This stops all containers and deletes every named volume (databases, media store,
 certificates). The action is irreversible — you will be prompted to confirm.
-
----
-
-## Keycloak SSO integration with Synapse
-
-### 1. Create the Matrix realm
-
-1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
-2. Click **Create realm** and set the realm name to `matrix`.
-
-### 2. Create the Synapse OIDC client
-
-Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
-then click **Save**:
-
-| Setting | Value |
-|---|---|
-| Client ID | `synapse` |
-| Client Type | `OpenID Connect` |
-| Client authentication | On |
-| Root URL | `https://<SYNAPSE_DOMAIN>` |
-| Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
-
-After saving, open the client's **Credentials** tab and set the **Client secret** to the
-value of `KEYCLOAK_CLIENT_SECRET` from your `.env` file.
-
-Then open the **Settings** tab, scroll to the **Logout settings** section, and update:
-
-| Setting | Value |
-|---|---|
-| Front channel logout | Off |
-| Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
-| Backchannel logout session required | On |
-
-Save.
 
 ---
 
