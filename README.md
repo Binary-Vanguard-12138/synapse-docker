@@ -15,7 +15,7 @@ All domain names are configured in a single `.env` file and never hardcoded else
 
 ## Prerequisites
 
-- A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04
+- A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04, with at least **4 GB RAM**
 - **Docker** and **Docker Compose v2** installed (see below)
 - **DNS A records** pointing all four domains to your server's IP before running `init-certs.sh`
 - Ports **80**, **443**, **3478**, **5349**, and **49152–49200/UDP** open in your firewall
@@ -314,6 +314,17 @@ The password is never used since authentication goes through Keycloak.
 
 3. The user can now log in to the Synapse Admin UI at
    `https://<SYNAPSE_DOMAIN>/admin` using their Keycloak credentials.
+
+### Change password
+
+Since authentication goes through Keycloak, passwords are managed there — not in
+Synapse or Element. Users can change their password via the Keycloak account portal:
+
+```
+https://<KEYCLOAK_DOMAIN>/realms/matrix/account/
+```
+
+After logging in, go to **Account Security → Signing in**.
 
 ### Certificate renewal
 
