@@ -48,7 +48,7 @@ server {
     }
 
     # MAS: all non-Matrix paths served by MAS (oauth, human UI, assets, graphql, upstream IdP)
-    location ~ ^/(authorize|consent|oauth2|login|logout|register|account|assets|upstream|graphql)(/|$) {
+    location ~ ^/(authorize|consent|complete-compat-sso|oauth2|login|logout|register|account|assets|upstream|graphql)(/|$) {
         proxy_pass       http://mas:8080;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
