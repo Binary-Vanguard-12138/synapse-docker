@@ -46,3 +46,11 @@ matrix_authentication_service:
   enabled: true
   endpoint: "http://mas:8080/"
   secret: "${MAS_MATRIX_SECRET}"
+
+experimental_features:
+  msc4143_enabled: true
+
+matrix_rtc:
+  transports:
+    - type: livekit
+      livekit_service_url: "https://${SYNAPSE_DOMAIN}/livekit/jwt"

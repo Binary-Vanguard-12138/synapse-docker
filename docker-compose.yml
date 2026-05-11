@@ -139,6 +139,49 @@ services:
     networks:
       - internal
 
+  # ── LiveKit: config generation (runs once per startup) ───
+  livekit-config:
+    image: alpine
+    restart: "no"
+    env_file: .env
+    volumes:
+      - livekit-data:/data
+      - ./livekit/config.yaml.template:/config.yaml.template:ro
+      - ./livekit/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    networks:
+      - internal
+
+  # ── LiveKit SFU ───────────────────────────────────────────
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: ["--config", "/data/config.yaml"]
+    volumes:
+      - livekit-data:/data:ro
+    ports:
+      - "7881:7881/tcp"
+      - "50200-50300:50200-50300/udp"
+    depends_on:
+      livekit-config:
+        condition: service_completed_successfully
+    networks:
+      - internal
+
+  # ── lk-jwt-service (MatrixRTC token bridge) ───────────────
+  lk-jwt:
+    image: ghcr.io/element-hq/lk-jwt-service:latest
+    restart: unless-stopped
+    environment:
+      LIVEKIT_URL: "wss://${SYNAPSE_DOMAIN}/livekit/"
+      LIVEKIT_KEY: "${LIVEKIT_API_KEY}"
+      LIVEKIT_SECRET: "${LIVEKIT_API_SECRET}"
+      LIVEKIT_FULL_ACCESS_HOMESERVERS: "${MATRIX_DOMAIN}"
+    depends_on:
+      - livekit
+    networks:
+      - internal
+
   # ── Nginx reverse proxy ───────────────────────────────────
   nginx:
     image: nginx:alpine
@@ -160,6 +203,7 @@ services:
       - keycloak
       - mas
       - mas-config
+      - lk-jwt
     networks:
       - internal
 
@@ -190,6 +234,7 @@ volumes:
   postgres-data:
   synapse-data:
   mas-data:
+  livekit-data:
   certbot-certs:
   certbot-webroot:
   synapse-admin-files:
