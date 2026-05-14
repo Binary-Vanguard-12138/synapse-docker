@@ -9,6 +9,7 @@ A Docker Compose deployment of:
 - **[PostgreSQL 16](https://www.postgresql.org/)** — shared database for Synapse, MAS, and Keycloak
 - **[LiveKit](https://livekit.io/)** — SFU for MatrixRTC voice/video calls (Element X)
 - **[lk-jwt-service](https://github.com/element-hq/lk-jwt-service)** — bridges Matrix OIDC tokens to LiveKit JWT tokens
+- **[ntfy](https://ntfy.sh/)** — UnifiedPush server for Android push notifications
 - **[Nginx](https://nginx.org/)** — HTTPS reverse proxy
 - **[Certbot](https://certbot.eff.org/)** — automatic Let's Encrypt TLS certificates
 
@@ -21,7 +22,7 @@ All domain names are configured in a single `.env` file and never hardcoded else
 - A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04, with at least **4 GB RAM**
 - **Docker** and **Docker Compose v2** installed (see below)
 - **DNS A records** pointing all four domains to your server's IP before running `init-certs.sh`
-- Ports **80**, **443**, **3478**, **5349**, **49152–49200/UDP**, **7881/TCP**, and **50200–50300/UDP** open in your firewall
+- Ports **80**, **443**, **2586**, **3478**, **5349**, **49152–49200/UDP**, **7881/TCP**, and **50200–50300/UDP** open in your firewall
 
 ---
 
@@ -324,13 +325,25 @@ enabled, `register_new_matrix_user` is not available. Instead:
 
 1. Create the user in Keycloak as described above.
 2. Have that user log in with Element X once so Synapse provisions the account.
-3. Grant Synapse admin rights directly in the database:
+3. Grant admin rights in **both** Synapse and MAS — both databases must be updated:
 
 ```bash
+# Grant admin in Synapse
 docker compose exec -e PGPASSWORD=<POSTGRES_PASSWORD> postgres \
   psql -U postgres -d synapse -c \
   "UPDATE users SET admin = 1 WHERE name = '@<username>:<MATRIX_DOMAIN>';"
+
+# Grant admin in MAS (required for the admin UI policy and token claims)
+docker compose exec -e PGPASSWORD=<POSTGRES_PASSWORD> postgres \
+  psql -U postgres -d mas -c \
+  "UPDATE users SET can_request_admin = true WHERE username = '<username>';"
 ```
+
+> **Why two commands?** MAS records each user's admin eligibility in its own
+> `can_request_admin` column, populated once at first login from Synapse's state at
+> that moment. Updating Synapse's `admin` flag afterwards does not automatically
+> propagate to MAS. Without `can_request_admin = true` in MAS, the admin UI login
+> is denied by MAS policy even though the user is an admin in Synapse.
 
 The user can now log in to the Synapse Admin UI at `https://<SYNAPSE_DOMAIN>/admin`
 using their Keycloak credentials.
@@ -429,6 +442,8 @@ Internet
    │                ├──► lk-jwt   :8080  (/livekit/jwt — MatrixRTC token bridge)
    │                └──► LiveKit   :7880  (/livekit/ — WebSocket signaling)
    │
+   ├─ :2586 ──► Nginx ──► ntfy    :80   (UnifiedPush — Android notifications)
+   │
    ├─ :3478 ─► coturn  (TURN/STUN plaintext)
    ├─ :5349 ─► coturn  (TURN/STUN TLS)
    ├─ :7881 ─► LiveKit (TCP fallback for WebRTC media)
@@ -465,5 +480,24 @@ stored under `live/<MATRIX_DOMAIN>/` in the `certbot-certs` volume.
 | 3478 | UDP/TCP | coturn | TURN/STUN |
 | 5349 | UDP/TCP | coturn | TURN/STUN over TLS |
 | 49152–49200 | UDP | coturn | TURN relay ports |
+| 2586 | TCP | Nginx → ntfy | UnifiedPush (Android push notifications) |
 | 7881 | TCP | LiveKit | WebRTC TCP fallback for media |
 | 50200–50300 | UDP | LiveKit | WebRTC UDP media relay (MatrixRTC calls) |
+
+### Firewall rules
+
+All ports in the table above must be reachable from the internet. On Ubuntu with `ufw`:
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 2586/tcp
+sudo ufw allow 3478
+sudo ufw allow 5349
+sudo ufw allow 7881/tcp
+sudo ufw allow 49152:49200/udp
+sudo ufw allow 50200:50300/udp
+sudo ufw enable
+```
+
+For other firewall tools (firewalld, iptables, or a cloud security group), open the same ports accordingly.
