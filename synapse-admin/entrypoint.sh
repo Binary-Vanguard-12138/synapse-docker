@@ -6,7 +6,7 @@ VERSION_FILE="${INSTALL_DIR}/.version"
 
 install_latest() {
     echo "[synapse-admin] Checking for latest release..."
-    LATEST=$(wget -qO- "https://api.github.com/repos/Awesome-Technologies/synapse-admin/releases/latest" \
+    LATEST=$(wget -qO- "https://api.github.com/repos/etkecc/synapse-admin/releases/latest" \
         | grep '"tag_name"' | cut -d'"' -f4)
 
     if [ -z "$LATEST" ]; then
@@ -21,17 +21,24 @@ install_latest() {
 
     echo "[synapse-admin] Downloading synapse-admin ${LATEST}..."
     cd /tmp
-    wget -q "https://github.com/Awesome-Technologies/synapse-admin/releases/download/${LATEST}/synapse-admin-${LATEST}.tar.gz"
-    tar -xzf "synapse-admin-${LATEST}.tar.gz"
-    rm "synapse-admin-${LATEST}.tar.gz"
+    wget -q "https://github.com/etkecc/ketesa/releases/download/${LATEST}/ketesa-subpath-admin.tar.gz"
+    tar -xzf "ketesa-subpath-admin.tar.gz"
+    rm "ketesa-subpath-admin.tar.gz"
 
     rm -rf "${INSTALL_DIR:?}"/*
-    mv "synapse-admin-${LATEST}/"* "${INSTALL_DIR}/"
-    rm -rf "synapse-admin-${LATEST}"
+    mv ketesa-subpath-admin/* "${INSTALL_DIR}/"
+    rm -rf ketesa-subpath-admin
 
     cat > "${INSTALL_DIR}/config.json" << EOF
 {
-  "restrictBaseUrl": "https://${SYNAPSE_DOMAIN}"
+  "restrictBaseUrl": "https://${SYNAPSE_DOMAIN}",
+  "loginWithOIDC": true,
+  "oidc": {
+    "authority": "https://${SYNAPSE_DOMAIN}",
+    "clientId": "000000000000000SYNAPSEADMN",
+    "redirectUri": "https://${SYNAPSE_DOMAIN}/admin/",
+    "scope": "openid urn:matrix:org.matrix.msc2967.client:api:* urn:synapse:admin:*"
+  }
 }
 EOF
 

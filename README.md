@@ -144,7 +144,7 @@ Open `.env` and set every value — this is the **only file you need to edit**:
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin console password |
 | `MAS_DB_PASSWORD` | Password for the `mas` database user |
 | `MAS_ENCRYPTION_SECRET` | 64-character hex string used by MAS to encrypt cookies and tokens |
-| `MAS_MATRIX_SECRET` | Shared secret between MAS and Synapse (also used as Synapse admin bearer token) |
+| `MAS_MATRIX_SECRET` | Shared secret between MAS and Synapse for internal API authentication |
 | `MAS_SYNAPSE_CLIENT_SECRET` | OIDC client secret for Synapse's registration with MAS |
 | `MAS_KEYCLOAK_CLIENT_SECRET` | OIDC client secret for MAS's registration with Keycloak (generate upfront; paste into Keycloak later) |
 | `LIVEKIT_API_KEY` | LiveKit API key (any alphanumeric string, used in livekit config and lk-jwt-service) |
@@ -324,14 +324,12 @@ enabled, `register_new_matrix_user` is not available. Instead:
 
 1. Create the user in Keycloak as described above.
 2. Have that user log in with Element X once so Synapse provisions the account.
-3. Grant Synapse admin rights using the `MAS_MATRIX_SECRET` as a bearer token:
+3. Grant Synapse admin rights directly in the database:
 
 ```bash
-curl -X PUT \
-  "https://<SYNAPSE_DOMAIN>/_synapse/admin/v1/users/@<username>:<MATRIX_DOMAIN>/admin" \
-  -H "Authorization: Bearer <MAS_MATRIX_SECRET>" \
-  -H "Content-Type: application/json" \
-  -d '{"admin": true}'
+docker compose exec -e PGPASSWORD=<POSTGRES_PASSWORD> postgres \
+  psql -U postgres -d synapse -c \
+  "UPDATE users SET admin = 1 WHERE name = '@<username>:<MATRIX_DOMAIN>';"
 ```
 
 The user can now log in to the Synapse Admin UI at `https://<SYNAPSE_DOMAIN>/admin`

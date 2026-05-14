@@ -26,9 +26,16 @@ clients:
   - client_id: "0000000000000000000SYNAPSE"
     client_auth_method: client_secret_basic
     client_secret: "${MAS_SYNAPSE_CLIENT_SECRET}"
+  - client_id: "000000000000000SYNAPSEADMN"
+    client_auth_method: none
+    redirect_uris:
+      - "https://${SYNAPSE_DOMAIN}/admin/"
 
 secrets:
   encryption: "${MAS_ENCRYPTION_SECRET}"
+
+passwords:
+  enabled: false
 
 email:
   from: '"Matrix" <noreply@${MATRIX_DOMAIN}>'
