@@ -28,4 +28,15 @@ ALTER SCHEMA public OWNER TO keycloak;
 GRANT ALL ON SCHEMA public TO keycloak;
 
 GRANT ALL PRIVILEGES ON DATABASE keycloak TO keycloak;
+
+-- Create MAS user and database
+CREATE USER mas WITH PASSWORD '$MAS_DB_PASSWORD';
+CREATE DATABASE mas
+    WITH OWNER = mas
+    ENCODING 'UTF8'
+    TEMPLATE = template0;
+
+\connect mas
+ALTER SCHEMA public OWNER TO mas;
+GRANT ALL ON SCHEMA public TO mas;
 SQL

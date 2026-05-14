@@ -12,7 +12,7 @@ server {
     }
 }
 
-# ── Synapse + Matrix well-known ───────────────────────────
+# ── Synapse + MAS + Matrix well-known ────────────────────
 server {
     listen 443 ssl;
     server_name ${SYNAPSE_DOMAIN};
@@ -33,9 +33,57 @@ server {
     }
 
     location /.well-known/matrix/client {
-        return 200 '{"m.homeserver":{"base_url":"https://${SYNAPSE_DOMAIN}"}}';
+        return 200 '{"m.homeserver":{"base_url":"https://${SYNAPSE_DOMAIN}"},"m.authentication":{"issuer":"https://${SYNAPSE_DOMAIN}/","account":"https://${SYNAPSE_DOMAIN}/account"},"org.matrix.msc4143.rtc_foci":[{"type":"livekit","livekit_service_url":"https://${SYNAPSE_DOMAIN}/livekit/jwt"}]}';
         add_header Content-Type application/json;
         add_header Access-Control-Allow-Origin *;
+    }
+
+    # LiveKit JWT service (MatrixRTC token generation)
+    # Element X appends /sfu/get to the livekit_service_url from well-known;
+    # trailing slash on both sides strips the /livekit/jwt prefix before proxying.
+    location /livekit/jwt/ {
+        proxy_pass       http://lk-jwt:8080/;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # LiveKit WebSocket signaling (MatrixRTC)
+    location /livekit/ {
+        proxy_pass          http://livekit:7880/;
+        proxy_http_version  1.1;
+        proxy_set_header    Upgrade    $http_upgrade;
+        proxy_set_header    Connection "upgrade";
+        proxy_set_header    Host       $host;
+        proxy_read_timeout  3600s;
+    }
+
+    # MAS: OIDC discovery
+    location = /.well-known/openid-configuration {
+        proxy_pass       http://mas:8080;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # MAS: all non-Matrix paths served by MAS (oauth, human UI, assets, graphql, upstream IdP)
+    location ~ ^/(authorize|consent|complete-compat-sso|oauth2|login|logout|register|account|assets|upstream|graphql)(/|$) {
+        proxy_pass       http://mas:8080;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # MAS: compat layer (legacy login/logout/refresh for older Matrix clients)
+    location ~ ^/_matrix/client/(r0|v3|unstable)/(login|logout|refresh) {
+        proxy_pass       http://mas:8080;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location /admin {
@@ -70,7 +118,7 @@ server {
     }
 
     location /.well-known/matrix/client {
-        return 200 '{"m.homeserver":{"base_url":"https://${SYNAPSE_DOMAIN}"}}';
+        return 200 '{"m.homeserver":{"base_url":"https://${SYNAPSE_DOMAIN}"},"m.authentication":{"issuer":"https://${SYNAPSE_DOMAIN}/","account":"https://${SYNAPSE_DOMAIN}/account"},"org.matrix.msc4143.rtc_foci":[{"type":"livekit","livekit_service_url":"https://${SYNAPSE_DOMAIN}/livekit/jwt"}]}';
         add_header Content-Type application/json;
         add_header Access-Control-Allow-Origin *;
     }

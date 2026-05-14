@@ -3,9 +3,12 @@
 A Docker Compose deployment of:
 
 - **[Matrix Synapse](https://github.com/element-hq/synapse)** — Matrix homeserver
-- **[coturn](https://github.com/coturn/coturn)** — TURN/STUN server for VoIP and video calls
-- **[Keycloak](https://www.keycloak.org/)** — SSO / identity provider
-- **[PostgreSQL 16](https://www.postgresql.org/)** — shared database for Synapse and Keycloak
+- **[MAS](https://github.com/element-hq/matrix-authentication-service)** — Matrix Authentication Service; native OIDC for Element X (MSC3861)
+- **[coturn](https://github.com/coturn/coturn)** — TURN/STUN server for VoIP NAT traversal
+- **[Keycloak](https://www.keycloak.org/)** — upstream identity provider (user accounts, passwords, OTP)
+- **[PostgreSQL 16](https://www.postgresql.org/)** — shared database for Synapse, MAS, and Keycloak
+- **[LiveKit](https://livekit.io/)** — SFU for MatrixRTC voice/video calls (Element X)
+- **[lk-jwt-service](https://github.com/element-hq/lk-jwt-service)** — bridges Matrix OIDC tokens to LiveKit JWT tokens
 - **[Nginx](https://nginx.org/)** — HTTPS reverse proxy
 - **[Certbot](https://certbot.eff.org/)** — automatic Let's Encrypt TLS certificates
 
@@ -18,7 +21,7 @@ All domain names are configured in a single `.env` file and never hardcoded else
 - A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04, with at least **4 GB RAM**
 - **Docker** and **Docker Compose v2** installed (see below)
 - **DNS A records** pointing all four domains to your server's IP before running `init-certs.sh`
-- Ports **80**, **443**, **3478**, **5349**, and **49152–49200/UDP** open in your firewall
+- Ports **80**, **443**, **3478**, **5349**, **49152–49200/UDP**, **7881/TCP**, and **50200–50300/UDP** open in your firewall
 
 ---
 
@@ -93,11 +96,17 @@ standalone `docker-compose` v1.
 │   ├── homeserver.yaml.template          # Synapse config (uses envsubst)
 │   ├── log.config                        # Synapse logging
 │   └── entrypoint.sh
+├── mas/
+│   ├── config.yaml.template              # MAS config (uses envsubst)
+│   └── init.sh                           # generates config from template and creates RSA signing key
 ├── coturn/
 │   ├── turnserver.conf.template          # coturn config (uses envsubst)
 │   └── entrypoint.sh
+├── livekit/
+│   ├── config.yaml.template              # LiveKit SFU config (uses envsubst)
+│   └── entrypoint.sh                     # substitutes env vars into config on startup
 ├── postgres/
-│   └── init-databases.sh                 # creates synapse + keycloak databases on first boot
+│   └── init-databases.sh                 # creates synapse, mas, and keycloak databases on first boot
 └── scripts/
     ├── init-certs.sh                     # one-time certificate initialisation (run before stack start)
     ├── backup.sh                         # snapshot databases, volumes, and .env to ./backups/
@@ -133,7 +142,13 @@ Open `.env` and set every value — this is the **only file you need to edit**:
 | `TURN_SECRET` | Shared secret between Synapse and coturn |
 | `KEYCLOAK_ADMIN` | Keycloak admin console username |
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin console password |
-| `KEYCLOAK_CLIENT_SECRET` | OIDC client secret shared between Synapse and Keycloak (generate upfront; paste into Keycloak later) |
+| `MAS_DB_PASSWORD` | Password for the `mas` database user |
+| `MAS_ENCRYPTION_SECRET` | 64-character hex string used by MAS to encrypt cookies and tokens |
+| `MAS_MATRIX_SECRET` | Shared secret between MAS and Synapse for internal API authentication |
+| `MAS_SYNAPSE_CLIENT_SECRET` | OIDC client secret for Synapse's registration with MAS |
+| `MAS_KEYCLOAK_CLIENT_SECRET` | OIDC client secret for MAS's registration with Keycloak (generate upfront; paste into Keycloak later) |
+| `LIVEKIT_API_KEY` | LiveKit API key (any alphanumeric string, used in livekit config and lk-jwt-service) |
+| `LIVEKIT_API_SECRET` | LiveKit API secret (long random string, must match between livekit and lk-jwt-service) |
 
 > **Password rules:** avoid `$`, `'`, `\`, and `&` in passwords — these characters
 > can break shell-based config substitution.
@@ -156,19 +171,31 @@ Run it once per secret variable and paste each output into `.env`. For example:
 POSTGRES_PASSWORD=$(pwgen -s 48 1)
 SYNAPSE_DB_PASSWORD=$(pwgen -s 48 1)
 KEYCLOAK_DB_PASSWORD=$(pwgen -s 48 1)
+MAS_DB_PASSWORD=$(pwgen -s 48 1)
 SYNAPSE_REGISTRATION_SECRET=$(pwgen -s 48 1)
 TURN_SECRET=$(pwgen -s 48 1)
 KEYCLOAK_ADMIN_PASSWORD=$(pwgen -s 48 1)
-KEYCLOAK_CLIENT_SECRET=$(pwgen -s 48 1)
+MAS_ENCRYPTION_SECRET=$(openssl rand -hex 32)
+MAS_MATRIX_SECRET=$(pwgen -s 48 1)
+MAS_SYNAPSE_CLIENT_SECRET=$(pwgen -s 48 1)
+MAS_KEYCLOAK_CLIENT_SECRET=$(pwgen -s 48 1)
+LIVEKIT_API_KEY=$(pwgen -s 32 1)
+LIVEKIT_API_SECRET=$(openssl rand -hex 32)
 
 # Print them all to copy into .env
 echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
 echo "SYNAPSE_DB_PASSWORD=$SYNAPSE_DB_PASSWORD"
 echo "KEYCLOAK_DB_PASSWORD=$KEYCLOAK_DB_PASSWORD"
+echo "MAS_DB_PASSWORD=$MAS_DB_PASSWORD"
 echo "SYNAPSE_REGISTRATION_SECRET=$SYNAPSE_REGISTRATION_SECRET"
 echo "TURN_SECRET=$TURN_SECRET"
 echo "KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD"
-echo "KEYCLOAK_CLIENT_SECRET=$KEYCLOAK_CLIENT_SECRET"
+echo "MAS_ENCRYPTION_SECRET=$MAS_ENCRYPTION_SECRET"
+echo "MAS_MATRIX_SECRET=$MAS_MATRIX_SECRET"
+echo "MAS_SYNAPSE_CLIENT_SECRET=$MAS_SYNAPSE_CLIENT_SECRET"
+echo "MAS_KEYCLOAK_CLIENT_SECRET=$MAS_KEYCLOAK_CLIENT_SECRET"
+echo "LIVEKIT_API_KEY=$LIVEKIT_API_KEY"
+echo "LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET"
 ```
 
 #### MATRIX_DOMAIN vs SYNAPSE_DOMAIN
@@ -241,38 +268,33 @@ See the [Keycloak SSO integration](#keycloak-sso-integration-with-synapse) secti
 
 ---
 
-## Keycloak SSO integration with Synapse
+## Keycloak SSO integration with MAS
+
+Keycloak acts as the upstream identity provider. Users authenticate with Keycloak; MAS
+handles the native OIDC layer between clients and Synapse.
 
 ### 1. Create the Matrix realm
 
 1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
 2. Click **Create realm** and set the realm name to `matrix`.
 
-### 2. Create the Synapse OIDC client
+### 2. Create the MAS OIDC client
 
 Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
 then click **Save**:
 
 | Setting | Value |
 |---|---|
-| Client ID | `synapse` |
+| Client ID | `mas` |
 | Client Type | `OpenID Connect` |
 | Client authentication | On |
 | Root URL | `https://<SYNAPSE_DOMAIN>` |
-| Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/callback` |
+| Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/upstream/callback/01KEYCAK000000000000000001` |
 
 After saving, open the client's **Credentials** tab and set the **Client secret** to the
-value of `KEYCLOAK_CLIENT_SECRET` from your `.env` file.
+value of `MAS_KEYCLOAK_CLIENT_SECRET` from your `.env` file.
 
-Then open the **Settings** tab, scroll to the **Logout settings** section, and update:
-
-| Setting | Value |
-|---|---|
-| Front channel logout | Off |
-| Backchannel logout URL | `https://<SYNAPSE_DOMAIN>/_synapse/client/oidc/backchannel_logout` |
-| Backchannel logout session required | On |
-
-Save. No Synapse restart is needed — the secret was already baked in at startup.
+Save. No restart is needed — the secret was already baked in at startup.
 
 ---
 
@@ -280,8 +302,7 @@ Save. No Synapse restart is needed — the secret was already baked in at startu
 
 ### Create users
 
-Password login is disabled (`password_config: enabled: false`), so all users authenticate
-exclusively through Keycloak. There is no "Register" button on the Keycloak login page —
+All users authenticate through Keycloak via MAS. There is no self-registration —
 accounts must be created by an administrator in the Keycloak admin console.
 
 #### Normal users
@@ -294,37 +315,39 @@ accounts must be created by an administrator in the Keycloak admin console.
 5. Open the **Credentials** tab, set a temporary password, and leave **Temporary** on so
    the user is forced to change it on first login.
 
-That is sufficient — Synapse auto-provisions the Matrix account on first SSO login.
+That is sufficient — MAS and Synapse auto-provision the account on first login.
 
 #### Synapse admin (required for the Synapse Admin UI)
 
-The Synapse Admin UI requires a Matrix account with admin privileges.
+The Synapse Admin UI requires a Matrix account with admin privileges. With MAS
+enabled, `register_new_matrix_user` is not available. Instead:
 
-1. Create the user in Keycloak as described above (e.g. username `admin`).
-2. Before that user logs in, run:
+1. Create the user in Keycloak as described above.
+2. Have that user log in with Element X once so Synapse provisions the account.
+3. Grant Synapse admin rights directly in the database:
 
 ```bash
-docker compose exec synapse register_new_matrix_user \
-  -c /data/homeserver.yaml \
-  -u <username> -p <dummy-password> --admin \
-  http://localhost:8008
+docker compose exec -e PGPASSWORD=<POSTGRES_PASSWORD> postgres \
+  psql -U postgres -d synapse -c \
+  "UPDATE users SET admin = 1 WHERE name = '@<username>:<MATRIX_DOMAIN>';"
 ```
 
-The password is never used since authentication goes through Keycloak.
-
-3. The user can now log in to the Synapse Admin UI at
-   `https://<SYNAPSE_DOMAIN>/admin` using their Keycloak credentials.
+The user can now log in to the Synapse Admin UI at `https://<SYNAPSE_DOMAIN>/admin`
+using their Keycloak credentials.
 
 ### Change password
 
-Since authentication goes through Keycloak, passwords are managed there — not in
-Synapse or Element. Users can change their password via the Keycloak account portal:
+Passwords are managed by Keycloak — not Synapse, MAS, or Element. Users change their
+password via the Keycloak account portal:
 
 ```
 https://<KEYCLOAK_DOMAIN>/realms/matrix/account/
 ```
 
 After logging in, go to **Account Security → Signing in**.
+
+For session management (active devices, sign out remotely), users can use the MAS
+account UI at `https://<SYNAPSE_DOMAIN>/account`.
 
 ### Certificate renewal
 
@@ -400,18 +423,31 @@ Internet
    ├─ :80  ──► Nginx ──► certbot webroot (ACME challenges)
    │                 └──► redirect to HTTPS
    │
-   ├─ :443 ──► Nginx ──► Synapse  :8008  (Matrix client + federation)
-   │                └──► Keycloak :8080  (SSO)
+   ├─ :443 ──► Nginx ──► Synapse   :8008  (Matrix client + federation)
+   │                ├──► MAS       :8080  (native OIDC — /oauth2, /login, /account, ...)
+   │                ├──► Keycloak  :8080  (identity provider — auth.example.com)
+   │                ├──► lk-jwt   :8080  (/livekit/jwt — MatrixRTC token bridge)
+   │                └──► LiveKit   :7880  (/livekit/ — WebSocket signaling)
    │
    ├─ :3478 ─► coturn  (TURN/STUN plaintext)
-   └─ :5349 ─► coturn  (TURN/STUN TLS)
+   ├─ :5349 ─► coturn  (TURN/STUN TLS)
+   ├─ :7881 ─► LiveKit (TCP fallback for WebRTC media)
+   └─ :50200–50300/UDP ─► LiveKit (WebRTC media relay)
 
 Internal network (Docker bridge):
-  Synapse ──► PostgreSQL (database: synapse)
-  Keycloak ─► PostgreSQL (database: keycloak)
-  coturn  ──► certbot-certs volume (TLS cert)
-  Nginx   ──► certbot-certs volume (TLS cert)
-             certbot-webroot volume (ACME challenge files)
+  Element X ──► MAS       (native OIDC login)
+  Element X ──► lk-jwt    (get LiveKit JWT for voice/video call)
+  Element X ──► LiveKit   (WebSocket signaling + WebRTC media)
+  MAS       ──► Keycloak  (upstream IdP — user accounts + passwords)
+  MAS       ──► Synapse   (MSC3861 token validation)
+  Synapse   ──► MAS       (MSC3861 auth delegation)
+  lk-jwt    ──► LiveKit   (internal room management)
+  Synapse   ──► PostgreSQL (database: synapse)
+  MAS       ──► PostgreSQL (database: mas)
+  Keycloak  ──► PostgreSQL (database: keycloak)
+  coturn    ──► certbot-certs volume (TLS cert)
+  Nginx     ──► certbot-certs volume (TLS cert)
+              certbot-webroot volume (ACME challenge files)
 ```
 
 TLS is terminated at Nginx for web traffic. coturn handles its own TLS directly using
@@ -425,7 +461,9 @@ stored under `live/<MATRIX_DOMAIN>/` in the `certbot-certs` volume.
 | Port | Protocol | Service | Purpose |
 |---|---|---|---|
 | 80 | TCP | Nginx | HTTP → HTTPS redirect + ACME challenges |
-| 443 | TCP | Nginx | HTTPS (Synapse, Keycloak) |
+| 443 | TCP | Nginx | HTTPS (Synapse, MAS, Keycloak, LiveKit signaling) |
 | 3478 | UDP/TCP | coturn | TURN/STUN |
 | 5349 | UDP/TCP | coturn | TURN/STUN over TLS |
 | 49152–49200 | UDP | coturn | TURN relay ports |
+| 7881 | TCP | LiveKit | WebRTC TCP fallback for media |
+| 50200–50300 | UDP | LiveKit | WebRTC UDP media relay (MatrixRTC calls) |

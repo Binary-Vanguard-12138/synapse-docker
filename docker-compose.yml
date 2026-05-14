@@ -11,6 +11,7 @@ services:
       # passed into init-databases.sh
       SYNAPSE_DB_PASSWORD: ${SYNAPSE_DB_PASSWORD}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      MAS_DB_PASSWORD: ${MAS_DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
@@ -97,6 +98,90 @@ services:
       retries: 5
       start_period: 90s
 
+  # ── MAS: config + key generation (runs once per startup) ─
+  mas-config:
+    image: alpine
+    restart: "no"
+    env_file: .env
+    volumes:
+      - mas-data:/data
+      - ./mas/config.yaml.template:/config.yaml.template:ro
+      - ./mas/init.sh:/init.sh:ro
+    entrypoint: ["/bin/sh", "/init.sh"]
+    networks:
+      - internal
+
+  # ── MAS: database migrations ──────────────────────────────
+  mas-migrate:
+    image: ghcr.io/element-hq/matrix-authentication-service:latest
+    restart: "no"
+    volumes:
+      - mas-data:/data
+    command: ["--config", "/data/config.yaml", "--config", "/data/keys.yaml", "database", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mas-config:
+        condition: service_completed_successfully
+    networks:
+      - internal
+
+  # ── MAS: server ───────────────────────────────────────────
+  mas:
+    image: ghcr.io/element-hq/matrix-authentication-service:latest
+    restart: unless-stopped
+    volumes:
+      - mas-data:/data
+    command: ["--config", "/data/config.yaml", "--config", "/data/keys.yaml", "server"]
+    depends_on:
+      mas-migrate:
+        condition: service_completed_successfully
+    networks:
+      - internal
+
+  # ── LiveKit: config generation (runs once per startup) ───
+  livekit-config:
+    image: alpine
+    restart: "no"
+    env_file: .env
+    volumes:
+      - livekit-data:/data
+      - ./livekit/config.yaml.template:/config.yaml.template:ro
+      - ./livekit/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    networks:
+      - internal
+
+  # ── LiveKit SFU ───────────────────────────────────────────
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: ["--config", "/data/config.yaml"]
+    volumes:
+      - livekit-data:/data:ro
+    ports:
+      - "7881:7881/tcp"
+      - "50200-50300:50200-50300/udp"
+    depends_on:
+      livekit-config:
+        condition: service_completed_successfully
+    networks:
+      - internal
+
+  # ── lk-jwt-service (MatrixRTC token bridge) ───────────────
+  lk-jwt:
+    image: ghcr.io/element-hq/lk-jwt-service:latest
+    restart: unless-stopped
+    environment:
+      LIVEKIT_URL: "wss://${SYNAPSE_DOMAIN}/livekit/"
+      LIVEKIT_KEY: "${LIVEKIT_API_KEY}"
+      LIVEKIT_SECRET: "${LIVEKIT_API_SECRET}"
+      LIVEKIT_FULL_ACCESS_HOMESERVERS: "${MATRIX_DOMAIN}"
+    depends_on:
+      - livekit
+    networks:
+      - internal
+
   # ── Nginx reverse proxy ───────────────────────────────────
   nginx:
     image: nginx:alpine
@@ -116,6 +201,9 @@ services:
     depends_on:
       - synapse
       - keycloak
+      - mas
+      - mas-config
+      - lk-jwt
     networks:
       - internal
 
@@ -145,6 +233,8 @@ services:
 volumes:
   postgres-data:
   synapse-data:
+  mas-data:
+  livekit-data:
   certbot-certs:
   certbot-webroot:
   synapse-admin-files:
