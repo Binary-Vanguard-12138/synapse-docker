@@ -188,7 +188,7 @@ services:
     restart: unless-stopped
     command: serve
     environment:
-      NTFY_BASE_URL: "https://${SYNAPSE_DOMAIN}/ntfy"
+      NTFY_BASE_URL: "https://${SYNAPSE_DOMAIN}:2586"
       NTFY_UPSTREAM_BASE_URL: ""
       NTFY_AUTH_DEFAULT_ACCESS: "deny-all"
       NTFY_BEHIND_PROXY: "true"
@@ -206,6 +206,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "2586:2586"
     volumes:
       - ./nginx/entrypoint.sh:/entrypoint.sh:ro
       # mounted as .template so nginx's own template processing never touches it
