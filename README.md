@@ -324,13 +324,25 @@ enabled, `register_new_matrix_user` is not available. Instead:
 
 1. Create the user in Keycloak as described above.
 2. Have that user log in with Element X once so Synapse provisions the account.
-3. Grant Synapse admin rights directly in the database:
+3. Grant admin rights in **both** Synapse and MAS — both databases must be updated:
 
 ```bash
+# Grant admin in Synapse
 docker compose exec -e PGPASSWORD=<POSTGRES_PASSWORD> postgres \
   psql -U postgres -d synapse -c \
   "UPDATE users SET admin = 1 WHERE name = '@<username>:<MATRIX_DOMAIN>';"
+
+# Grant admin in MAS (required for the admin UI policy and token claims)
+docker compose exec -e PGPASSWORD=<POSTGRES_PASSWORD> postgres \
+  psql -U postgres -d mas -c \
+  "UPDATE users SET can_request_admin = true WHERE username = '<username>';"
 ```
+
+> **Why two commands?** MAS records each user's admin eligibility in its own
+> `can_request_admin` column, populated once at first login from Synapse's state at
+> that moment. Updating Synapse's `admin` flag afterwards does not automatically
+> propagate to MAS. Without `can_request_admin = true` in MAS, the admin UI login
+> is denied by MAS policy even though the user is an admin in Synapse.
 
 The user can now log in to the Synapse Admin UI at `https://<SYNAPSE_DOMAIN>/admin`
 using their Keycloak credentials.
