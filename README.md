@@ -17,6 +17,26 @@ All domain names are configured in a single `.env` file and never hardcoded else
 
 ---
 
+## Web interfaces
+
+| Interface | URL | Purpose |
+|---|---|---|
+| **Keycloak admin** | `https://<KEYCLOAK_DOMAIN>` | User accounts, SSO configuration |
+| **MAS account** | `https://<SYNAPSE_DOMAIN>/account` | Session management, password change |
+| **Synapse Admin** | `https://<SYNAPSE_DOMAIN>/admin` | Room, user, and server administration |
+| **ntfy** | `https://<SYNAPSE_DOMAIN>:2586` | Push notification dashboard |
+
+<p float="left">
+  <img src="docs/screenshots/keycloak-admin-home.png" width="49%" alt="Keycloak admin"/>
+  <img src="docs/screenshots/mas-account.png" width="49%" alt="MAS account"/>
+</p>
+<p float="left">
+  <img src="docs/screenshots/synapse-admin-2.png" width="49%" alt="Synapse Admin UI"/>
+  <img src="docs/screenshots/ntfy.png" width="49%" alt="ntfy push notification dashboard"/>
+</p>
+
+---
+
 ## Prerequisites
 
 - A Linux server with a **public IP address** running Ubuntu 22.04 or 24.04, with at least **4 GB RAM**
@@ -108,6 +128,8 @@ standalone `docker-compose` v1.
 │   └── entrypoint.sh                     # substitutes env vars into config on startup
 ├── postgres/
 │   └── init-databases.sh                 # creates synapse, mas, and keycloak databases on first boot
+├── docs/
+│   └── screenshots/                      # UI screenshots embedded in this README
 └── scripts/
     ├── init-certs.sh                     # one-time certificate initialisation (run before stack start)
     ├── backup.sh                         # snapshot databases, volumes, and .env to ./backups/
@@ -277,20 +299,28 @@ handles the native OIDC layer between clients and Synapse.
 ### 1. Create the Matrix realm
 
 1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
+
+   ![Keycloak login](docs/screenshots/keycloak-login.png)
+
 2. Click **Create realm** and set the realm name to `matrix`.
+   ![Keycloak create realm](docs/screenshots/keycloak-create-realm.png)
 
 ### 2. Create the MAS OIDC client
 
 Inside the `matrix` realm, go to **Clients → Create client** and fill in the following,
 then click **Save**:
 
+![Keycloak clients](docs/screenshots/keycloak-matrix-clients.png)
+
 | Setting | Value |
 |---|---|
+| Client type | `OpenID Connect` |
 | Client ID | `mas` |
-| Client Type | `OpenID Connect` |
 | Client authentication | On |
 | Root URL | `https://<SYNAPSE_DOMAIN>` |
 | Valid Redirect URIs | `https://<SYNAPSE_DOMAIN>/upstream/callback/01KEYCAK000000000000000001` |
+
+![Keycloak client URLs](docs/screenshots/keycloak-create-client-2.png)
 
 After saving, open the client's **Credentials** tab and set the **Client secret** to the
 value of `MAS_KEYCLOAK_CLIENT_SECRET` from your `.env` file.
@@ -307,12 +337,17 @@ All users authenticate through Keycloak via MAS. There is no self-registration �
 accounts must be created by an administrator in the Keycloak admin console.
 
 #### Normal users
-
 1. Log in to `https://<KEYCLOAK_DOMAIN>` with your admin credentials.
 2. Select the **matrix** realm.
-3. Go to **Users → Add user**, fill in the username, and click **Create**.
-4. On the **Details** tab, add **Configure OTP** to **Required user actions** to enforce
-   two-factor authentication on first login.
+3. Go to **Users → Add user**.
+
+![Keycloak users](docs/screenshots/keycloak-users.png)
+
+4. Add **Configure OTP** to **Required user actions** to enforce
+   two-factor authentication on first login, fill in the username, and click **Create**.
+
+![Keycloak create user](docs/screenshots/keycloak-create-user.png)
+
 5. Open the **Credentials** tab, set a temporary password, and leave **Temporary** on so
    the user is forced to change it on first login.
 
@@ -320,8 +355,7 @@ That is sufficient — MAS and Synapse auto-provision the account on first login
 
 #### Synapse admin (required for the Synapse Admin UI)
 
-The Synapse Admin UI requires a Matrix account with admin privileges. With MAS
-enabled, `register_new_matrix_user` is not available. Instead:
+The Synapse Admin UI requires a Matrix account with admin privileges.
 
 1. Create the user in Keycloak as described above.
 2. Have that user log in with Element X once so Synapse provisions the account.
@@ -348,6 +382,8 @@ docker compose exec -e PGPASSWORD=<POSTGRES_PASSWORD> postgres \
 The user can now log in to the Synapse Admin UI at `https://<SYNAPSE_DOMAIN>/admin`
 using their Keycloak credentials.
 
+![Synapse Admin UI](docs/screenshots/synapse-admin.png)
+
 ### Change password
 
 Passwords are managed by Keycloak — not Synapse, MAS, or Element. Users change their
@@ -359,8 +395,12 @@ https://<KEYCLOAK_DOMAIN>/realms/matrix/account/
 
 After logging in, go to **Account Security → Signing in**.
 
+![Keycloak user change password](docs/screenshots/keycloak-user-change-password.png)
+
 For session management (active devices, sign out remotely), users can use the MAS
 account UI at `https://<SYNAPSE_DOMAIN>/account`.
+
+![MAS account UI](docs/screenshots/mas-account.png)
 
 ### Certificate renewal
 
@@ -430,6 +470,11 @@ certificates). The action is irreversible — you will be prompted to confirm.
 
 ## Architecture overview
 
+![Architecture diagram](docs/screenshots/architecture.png)
+
+<details>
+<summary>Text diagram</summary>
+
 ```
 Internet
    │
@@ -464,6 +509,8 @@ Internal network (Docker bridge):
   Nginx     ──► certbot-certs volume (TLS cert)
               certbot-webroot volume (ACME challenge files)
 ```
+
+</details>
 
 TLS is terminated at Nginx for web traffic. coturn handles its own TLS directly using
 the shared Let's Encrypt certificate — a multi-SAN cert covering all configured domains,
