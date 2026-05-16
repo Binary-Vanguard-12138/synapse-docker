@@ -102,42 +102,6 @@ standalone `docker-compose` v1.
 
 ---
 
-## Directory structure
-
-```
-.
-├── .env.example                          # configuration template
-├── docker-compose.yml
-├── nginx/
-│   ├── default.conf.template             # Nginx vhost config (uses envsubst)
-│   └── entrypoint.sh                     # substitutes env vars; bootstraps HTTP-only mode if certs are missing
-├── certbot/
-│   └── entrypoint.sh                     # certificate renewal loop (every 12 h)
-├── synapse/
-│   ├── homeserver.yaml.template          # Synapse config (uses envsubst)
-│   ├── log.config                        # Synapse logging
-│   └── entrypoint.sh
-├── mas/
-│   ├── config.yaml.template              # MAS config (uses envsubst)
-│   └── init.sh                           # generates config from template and creates RSA signing key
-├── coturn/
-│   ├── turnserver.conf.template          # coturn config (uses envsubst)
-│   └── entrypoint.sh
-├── livekit/
-│   ├── config.yaml.template              # LiveKit SFU config (uses envsubst)
-│   └── entrypoint.sh                     # substitutes env vars into config on startup
-├── postgres/
-│   └── init-databases.sh                 # creates synapse, mas, and keycloak databases on first boot
-├── docs/
-│   └── screenshots/                      # UI screenshots embedded in this README
-└── scripts/
-    ├── init-certs.sh                     # one-time certificate initialisation (run before stack start)
-    ├── backup.sh                         # snapshot databases, volumes, and .env to ./backups/
-    └── uninstall.sh                      # tear down all containers, networks, and volumes
-```
-
----
-
 ## Deployment
 
 ### 1. Clone and configure
