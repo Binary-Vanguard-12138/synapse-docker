@@ -366,6 +366,18 @@ account UI at `https://<SYNAPSE_DOMAIN>/account`.
 
 ![MAS account UI](docs/screenshots/mas-account.png)
 
+### Serve static files
+
+Place any file in `/var/www/html/` on the host and it will be publicly accessible at:
+
+```
+https://<MATRIX_DOMAIN>/download/<filename>
+```
+
+For example, uploading `/var/www/html/photo.jpg` makes it available at `https://<MATRIX_DOMAIN>/download/photo.jpg`.
+
+Files must be readable by others (`chmod 644` for files, `chmod 755` for directories).
+
 ### Certificate renewal
 
 Certbot automatically attempts renewal every 12 hours using the **webroot** method
